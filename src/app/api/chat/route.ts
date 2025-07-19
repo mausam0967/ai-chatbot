@@ -5,10 +5,11 @@ export async function POST(req: Request) {
     // Parse the incoming request body for messages
     const body = await req.json();
     const messages = body.messages || [];
+    const requestedModel = body.model;
 
     // Ensure the Together AI API key and model are available
     const apiKey = process.env.TOGETHER_API_KEY;
-    const model = process.env.TOGETHER_MODEL || "togethercomputer/llama-2-70b-chat";
+    const model = requestedModel || process.env.TOGETHER_MODEL || "togethercomputer/llama-2-70b-chat";
     if (!apiKey) {
       return new Response('Together AI API key not set in environment.', { status: 500 });
     }
@@ -24,7 +25,7 @@ export async function POST(req: Request) {
         model,
         messages: [
           { role: 'system', content: 'You are a helpful AI assistant.' },
-          ...messages.map((m: any) => ({ role: m.role, content: m.content })),
+          ...messages.map((m: { role: string; content: string }) => ({ role: m.role, content: m.content })),
         ],
         max_tokens: 1024,
       }),

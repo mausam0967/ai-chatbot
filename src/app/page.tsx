@@ -14,6 +14,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Array<{ id: number; role: string; content: string }>>([])
   const [input, setInput] = useState("")
   const [isLoading, setIsLoading] = useState(false)
+  const [model, setModel] = useState<string>("togethercomputer/llama-2-70b-chat");
   const scrollAreaRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -37,7 +38,7 @@ export default function ChatPage() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ messages: [...messages, userMessage] }),
+        body: JSON.stringify({ messages: [...messages, userMessage], model }),
       })
 
       if (!response.ok) {
@@ -116,7 +117,16 @@ export default function ChatPage() {
               </p>
             </div>
           </div>
-          <div>
+          <div className="flex items-center space-x-4">
+            <select
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              className="border rounded px-2 py-1 text-sm bg-white dark:bg-slate-800 dark:text-white"
+              disabled={isLoading}
+            >
+              <option value="togethercomputer/llama-2-70b-chat">Together AI: Llama-2-70B-Chat</option>
+              <option value="lgai/exaone-3-5-32b-instruct">Exaone-3-5-32B-Instruct</option>
+            </select>
             <span className="mr-4 font-semibold text-blue-700 dark:text-purple-300">{session.user?.name}</span>
             <Button variant="outline" onClick={() => signOut()}>Sign out</Button>
           </div>

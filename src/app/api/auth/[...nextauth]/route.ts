@@ -12,7 +12,7 @@ const handler = NextAuth({
     strategy: 'jwt',
   },
   callbacks: {
-    async session({ session, token }) {
+    async session({ session, token: _token }) {
       // Optionally add custom session properties here
       return session;
     },
