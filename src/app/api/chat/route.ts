@@ -1,6 +1,7 @@
 export const maxDuration = 30;
 
 export async function POST(req: Request) {
+  const totalStart = Date.now();
   try {
     // Parse the incoming request body for messages
     const body = await req.json();
@@ -15,6 +16,7 @@ export async function POST(req: Request) {
     }
 
     // Call Together AI's chat completions endpoint
+    const aiStart = Date.now();
     const response = await fetch("https://api.together.xyz/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -30,6 +32,8 @@ export async function POST(req: Request) {
         max_tokens: 1024,
       }),
     });
+    const aiEnd = Date.now();
+    console.log('Together AI response time:', aiEnd - aiStart, 'ms');
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -39,10 +43,15 @@ export async function POST(req: Request) {
     const data = await response.json();
     const aiReply = data.choices?.[0]?.message?.content || 'No response from AI.';
 
+    const totalEnd = Date.now();
+    console.log('Total /api/chat POST time:', totalEnd - totalStart, 'ms');
+
     return new Response(JSON.stringify({ content: aiReply }), {
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (error) {
+    const totalEnd = Date.now();
+    console.log('Total /api/chat POST time (error):', totalEnd - totalStart, 'ms');
     return new Response(`Server error: ${error instanceof Error ? error.message : String(error)}`, { status: 500 });
   }
 }

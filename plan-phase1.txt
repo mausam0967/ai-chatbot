@@ -61,3 +61,14 @@ AI Chatbot App: Phase 1 Analysis & Recommendations
 
 ---
 Prioritize these improvements for a robust, user-friendly, and production-ready AI chatbot. 
+
+
+🆕 Recent Development & Optimization (July 19)
+-----------------------------------------------
+- Added support for toggling between multiple LLMs (Together AI: Llama-2-70B-Chat and Exaone-3-5-32B-Instruct) via a user-facing dropdown in the UI.
+- Backend updated to accept and use the selected model per request, enabling dynamic LLM switching.
+- Improved error handling and code quality by addressing ESLint warnings (unused variables, explicit any types).
+- Added timing logs to the chat API endpoint to diagnose and optimize server and external API latency.
+- Ensured environment variables and API keys are handled securely and never exposed to the client.
+- Enhanced user experience with clear loading indicators and robust session management.
+- Maintained modern, accessible UI and continued to use NextAuth for secure authentication. 
