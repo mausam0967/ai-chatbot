@@ -14,14 +14,46 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Array<{ id: number; role: string; content: string }>>([])
   const [input, setInput] = useState("")
   const [isLoading, setIsLoading] = useState(false)
-  const [model, setModel] = useState<string>("togethercomputer/llama-2-70b-chat");
+  const [model, setModel] = useState<string>(process.env.AI_MODEL_NAME || "lgai/exaone-3-5-32b-instruct");
+  const [error, setError] = useState<string>("");
   const scrollAreaRef = useRef<HTMLDivElement>(null)
+  const [lastUserMessage, setLastUserMessage] = useState<{ id: number; role: string; content: string } | null>(null);
+  const [lastModel, setLastModel] = useState<string>("");
+  const MAX_MESSAGE_LENGTH = 500;
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const clearButtonRef = useRef<HTMLButtonElement>(null);
+  const confirmYesRef = useRef<HTMLButtonElement>(null);
+
+  // Add clearChat handler
+  const clearChat = () => {
+    setMessages([]);
+    setInput("");
+    setError("");
+    setLastUserMessage(null);
+    setLastModel("");
+    setShowClearConfirm(false);
+  };
 
   useEffect(() => {
     if (scrollAreaRef.current) {
       scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight
     }
   }, [messages])
+
+  // Trap focus in modal and handle Escape key
+  useEffect(() => {
+    if (showClearConfirm) {
+      confirmYesRef.current?.focus();
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === "Escape") {
+          setShowClearConfirm(false);
+          clearButtonRef.current?.focus();
+        }
+      };
+      window.addEventListener("keydown", handleKeyDown);
+      return () => window.removeEventListener("keydown", handleKeyDown);
+    }
+  }, [showClearConfirm]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -31,6 +63,9 @@ export default function ChatPage() {
     setMessages((prevMessages) => [...prevMessages, userMessage])
     setInput("")
     setIsLoading(true)
+    setError("");
+    setLastUserMessage(userMessage);
+    setLastModel(model);
 
     try {
       const response = await fetch("/api/chat", {
@@ -42,23 +77,68 @@ export default function ChatPage() {
       })
 
       if (!response.ok) {
-        const errorData = await response.text()
-        throw new Error(`API error: ${response.status} ${response.statusText} - ${errorData}`)
+        let errorMsg = "Something went wrong. Please try again.";
+        try {
+          const errorData = await response.json();
+          if (errorData && errorData.error) {
+            errorMsg = errorData.error;
+          }
+        } catch (jsonErr) {
+          // fallback to text
+          const errorText = await response.text();
+          if (errorText) errorMsg = errorText;
+        }
+        setError(errorMsg);
+        return;
       }
 
       const data = await response.json()
       const aiMessage = { id: Date.now() + 1, role: "assistant", content: data.content }
       setMessages((prevMessages) => [...prevMessages, aiMessage])
     } catch (error) {
-      console.error("Failed to send message:", error)
-      setMessages((prevMessages) => [
-        ...prevMessages,
-        { id: Date.now() + 1, role: "assistant", content: `Error: ${error instanceof Error ? error.message : String(error)}` },
-      ])
+      setError("Network error. Please check your connection and try again.");
     } finally {
       setIsLoading(false)
     }
   }
+
+  const handleRetry = async () => {
+    if (!lastUserMessage) return;
+    setIsLoading(true);
+    setError("");
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ messages: [...messages, lastUserMessage], model: lastModel || model }),
+      });
+      if (!response.ok) {
+        let errorMsg = "Something went wrong. Please try again.";
+        try {
+          const errorData = await response.json();
+          if (errorData && errorData.error) {
+            errorMsg = errorData.error;
+          }
+        } catch (jsonErr) {
+          const errorText = await response.text();
+          if (errorText) errorMsg = errorText;
+        }
+        setError(errorMsg);
+        return;
+      }
+      const data = await response.json();
+      const aiMessage = { id: Date.now() + 1, role: "assistant", content: data.content };
+      setMessages((prevMessages) => [...prevMessages, aiMessage]);
+      setLastUserMessage(null);
+      setLastModel("");
+    } catch (error) {
+      setError("Network error. Please check your connection and try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   if (status === "loading") {
     return (
@@ -99,7 +179,7 @@ export default function ChatPage() {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
       <div className="container mx-auto max-w-4xl h-screen flex flex-col p-4">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6 pt-6">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6 pt-6 gap-y-4 gap-x-6 flex-wrap w-full">
           <div className="flex items-center space-x-3">
             <div className="relative">
               <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
@@ -117,23 +197,93 @@ export default function ChatPage() {
               </p>
             </div>
           </div>
-          <div className="flex items-center space-x-4">
-            <select
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              className="border rounded px-2 py-1 text-sm bg-white dark:bg-slate-800 dark:text-white"
-              disabled={isLoading}
-            >
-              <option value="togethercomputer/llama-2-70b-chat">Together AI: Llama-2-70B-Chat</option>
-              <option value="lgai/exaone-3-5-32b-instruct">Exaone-3-5-32B-Instruct</option>
-            </select>
-            <span className="mr-4 font-semibold text-blue-700 dark:text-purple-300">{session.user?.name}</span>
-            <Button variant="outline" onClick={() => signOut()}>Sign out</Button>
+          <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4 w-full md:w-auto">
+            <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4 w-full md:w-auto">
+              <select
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                className="border rounded px-2 py-1 text-sm bg-white dark:bg-slate-800 dark:text-white w-full md:w-auto"
+                disabled={isLoading}
+              >
+                <option value="lgai/exaone-3-5-32b-instruct">Exaone-3-5-32B-Instruct (Serverless, ready to use)</option>
+                <option value="deepseek-ai/DeepSeek-R1-Distill-Llama-70B-free">DeepSeek-R1-Distill-Llama-70B-free (Serverless, ready to use)</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-2 md:gap-4">
+              <span className="font-semibold text-blue-700 dark:text-purple-300 whitespace-nowrap">{session.user?.name}</span>
+              <Button variant="outline" onClick={() => signOut()}>Sign out</Button>
+            </div>
           </div>
         </div>
 
         {/* Chat Container */}
-        <Card className="flex-1 flex flex-col shadow-xl border-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm">
+        <Card className="flex-1 flex flex-col shadow-xl border-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm relative">
+          {/* Sticky Top Bar for Clear Button only */}
+          <div className="sticky top-0 left-0 z-20 flex items-start px-4 pt-4 pb-2 bg-white/80 dark:bg-slate-900/80 rounded-t-lg">
+            <button
+              ref={clearButtonRef}
+              onClick={() => setShowClearConfirm(true)}
+              className="flex items-center gap-2 text-xs px-4 py-2 font-semibold bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-full shadow-lg hover:from-blue-600 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-blue-400 transition-all border-0"
+              aria-label="Clear chat history"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              Clear
+            </button>
+          </div>
+          {/* Clear Chat Confirmation Dialog (fixed, centered modal) */}
+          {showClearConfirm && (
+            <div className="fixed inset-0 flex items-center justify-center z-50 bg-black/30" role="dialog" aria-modal="true" aria-labelledby="clear-chat-title">
+              <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl p-6 flex flex-col items-center">
+                <p id="clear-chat-title" className="mb-4 text-lg font-semibold text-slate-800 dark:text-slate-100">Clear all chat messages?</p>
+                <div className="flex gap-4">
+                  <button
+                    ref={confirmYesRef}
+                    onClick={clearChat}
+                    className="px-4 py-2 rounded bg-gradient-to-r from-blue-500 to-purple-600 text-white font-semibold shadow hover:from-blue-600 hover:to-purple-700 focus:outline-none"
+                    aria-label="Confirm clear chat"
+                  >
+                    Yes, clear
+                  </button>
+                  <button
+                    onClick={() => { setShowClearConfirm(false); clearButtonRef.current?.focus(); }}
+                    className="px-4 py-2 rounded bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-100 font-semibold shadow hover:bg-slate-300 dark:hover:bg-slate-600 focus:outline-none"
+                    aria-label="Cancel clear chat"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+          {/* Error Banner */}
+          {error && (
+            <div className="bg-red-100 border border-red-300 text-red-700 px-4 py-2 rounded-md mb-2 flex items-center justify-between">
+              <span>{error}</span>
+              <div className="flex items-center gap-2">
+                <button
+                  className="text-blue-700 hover:text-blue-900 font-bold border border-blue-200 rounded px-2 py-1 disabled:opacity-50 flex items-center gap-2"
+                  onClick={handleRetry}
+                  disabled={isLoading}
+                  aria-label="Retry last message"
+                >
+                  {isLoading ? (
+                    <svg className="animate-spin h-4 w-4 mr-1 text-blue-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                    </svg>
+                  ) : null}
+                  Retry
+                </button>
+                <button
+                  className="ml-2 text-red-700 hover:text-red-900 font-bold"
+                  onClick={() => setError("")}
+                  aria-label="Dismiss error"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+          )}
           {/* Messages */}
           <ScrollArea className="flex-1 p-6" ref={scrollAreaRef}>
             <div className="space-y-6">
@@ -214,20 +364,38 @@ export default function ChatPage() {
               <div className="flex-1 relative">
                 <Input
                   value={input}
-                  onChange={(e) => setInput(e.target.value)}
+                  onChange={(e) => {
+                    if (e.target.value.length <= MAX_MESSAGE_LENGTH) {
+                      setInput(e.target.value);
+                    }
+                  }}
                   placeholder="Type your message..."
                   className="pr-12 h-12 rounded-full border-2 focus:border-blue-500 transition-colors"
                   disabled={isLoading}
+                  maxLength={MAX_MESSAGE_LENGTH}
+                  aria-label="Type your message"
                 />
+                <div className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-gray-500 select-none">
+                  {input.length}/{MAX_MESSAGE_LENGTH}
+                </div>
+                {input.length === MAX_MESSAGE_LENGTH && (
+                  <div className="absolute left-0 -bottom-5 text-xs text-red-500">Maximum message length reached.</div>
+                )}
               </div>
               <Button
                 type="submit"
-                disabled={isLoading || !input.trim()}
+                disabled={isLoading || !input.trim() || input.length > MAX_MESSAGE_LENGTH}
                 className="h-12 w-12 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 transition-all duration-200 shadow-lg hover:shadow-xl"
+                aria-label="Send message"
               >
                 <Send className="w-4 h-4" />
               </Button>
             </form>
+            {/* Ephemeral Chat Warning (centered below input) */}
+            <div className="mt-3 flex items-center justify-center gap-2 text-xs text-yellow-700 bg-yellow-100 dark:bg-yellow-900/40 dark:text-yellow-200 rounded px-3 py-1 w-fit mx-auto">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              Chat history is not saved and will be lost if you refresh or sign out.
+            </div>
           </div>
         </Card>
 

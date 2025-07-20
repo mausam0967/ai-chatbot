@@ -1,12 +1,33 @@
 export const maxDuration = 30;
 
+const MAX_MESSAGE_LENGTH = 500;
+const RATE_LIMIT_WINDOW_MS = 2000; // 2 seconds
+const rateLimitMap = new Map<string, number>();
+
 export async function POST(req: Request) {
   const totalStart = Date.now();
   try {
+    // Rate limiting by IP
+    const ip = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || 'unknown';
+    const now = Date.now();
+    const lastRequest = rateLimitMap.get(ip);
+    if (lastRequest && now - lastRequest < RATE_LIMIT_WINDOW_MS) {
+      return new Response(JSON.stringify({ error: 'You are sending messages too quickly. Please wait a moment before trying again.' }), { status: 429, headers: { 'Content-Type': 'application/json' } });
+    }
+    rateLimitMap.set(ip, now);
+
     // Parse the incoming request body for messages
     const body = await req.json();
     const messages = body.messages || [];
     const requestedModel = body.model;
+
+    // Validate message length (last user message)
+    if (messages.length > 0) {
+      const lastMsg = messages[messages.length - 1];
+      if (typeof lastMsg.content !== 'string' || lastMsg.content.length > MAX_MESSAGE_LENGTH) {
+        return new Response(JSON.stringify({ error: `Message too long. Maximum length is ${MAX_MESSAGE_LENGTH} characters.` }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+      }
+    }
 
     // Ensure the Together AI API key and model are available
     const apiKey = process.env.TOGETHER_API_KEY;
@@ -14,6 +35,8 @@ export async function POST(req: Request) {
     if (!apiKey) {
       return new Response('Together AI API key not set in environment.', { status: 500 });
     }
+
+    // Remove dedicated model check and error
 
     // Call Together AI's chat completions endpoint
     const aiStart = Date.now();
